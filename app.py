@@ -207,14 +207,17 @@ class ValidatorApp:
                         json=payload.model_dump(),
                         headers={"message": message},
                     )
-                    response.raise_for_status()
+                    if response.status_code != 200:
+                        print(
+                            f"Error during organic request forwarding: {response.status_code}"
+                        )
+                        raise HTTPException(
+                            status_code=response.status_code, detail=response.text
+                        )
                     return response.json()
-            except httpx.HTTPError as e:
-                print(f"HTTP error during forwarding: {e}")
-                raise HTTPException(status_code=502, detail="Bad Gateway")
-            except Exception as e:
-                print(f"Unexpected error during organic request handling: {e}")
-                raise HTTPException(status_code=500, detail="Internal Server Error")
+            except httpx.RequestError as e:
+                print(f"Error during organic request forwarding: {e}")
+                raise HTTPException(status_code=503, detail="Forwarding Error")
 
     # Additional methods and utilities can be added here if necessary
 
