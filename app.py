@@ -124,7 +124,7 @@ class ValidatorApp:
             """
             Register a validator with the provided payload and client data.
             """
-            client_data = check_authentication(request)
+            client_data = check_authentication(self.subtensor, self.NETUID, request)
             payload = RegisterPayload(**await request.json())
             try:
                 collection = self.DB["validators"]

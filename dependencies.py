@@ -4,7 +4,7 @@ import bittensor as bt
 
 
 async def check_authentication(
-    subtensor: bt.Subtensor, netuid: int, request: Request, call_next
+    subtensor: bt.Subtensor, netuid: int, request: Request
 ):
     message = request.headers.get("message")
     ss58_address = request.headers.get("ss58_address")
