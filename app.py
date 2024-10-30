@@ -51,7 +51,7 @@ class ValidatorApp:
             raise
 
         # Initialize in-memory validators list and a lock for thread safety
-        self.in_memory_validators = []
+        self.in_memory_validators = {}
         self.validators = []
 
         # Start background tasks
@@ -101,6 +101,9 @@ class ValidatorApp:
                 # Filter out None results and update in-memory validators
                 updated_validators = [v for v in results if v is not None]
 
+                # deduplicate by _id
+                updated_validators = {v["_id"]: v for v in updated_validators}.values()
+
                 self.in_memory_validators = updated_validators
 
                 print(
@@ -144,8 +147,10 @@ class ValidatorApp:
                 print(f"Updated {result.modified_count} documents")
 
                 # Update in-memory validators immediately after registration
-                self.in_memory_validators.append(data.model_dump())
-
+                self.in_memory_validators[ss58_address] = data.model_dump()
+                print(
+                    "Current in_memory_validators:", self.in_memory_validators.values()
+                )
                 return {"status": "success"}
             except pymongo.errors.PyMongoError as e:
                 print(f"Database error during registration: {e}")
@@ -178,7 +183,7 @@ class ValidatorApp:
 
                 stakes = []
                 urls = []
-                for validator in validators:
+                for validator in validators.values():
                     stake = validator.get("stake", 1)
                     endpoint = validator.get("endpoint")
                     if not endpoint:
