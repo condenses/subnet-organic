@@ -23,3 +23,4 @@ class ValidatorRegisterData(BaseModel):
     ip_address: str
     port: int
     _id: str
+    endpoint: str
