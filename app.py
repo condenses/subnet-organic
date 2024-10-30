@@ -102,7 +102,7 @@ class ValidatorApp:
                 updated_validators = [v for v in results if v is not None]
 
                 # deduplicate by _id
-                updated_validators = {v["_id"]: v for v in updated_validators}.values()
+                updated_validators = {v["_id"]: v for v in updated_validators}
 
                 self.in_memory_validators = updated_validators
 
