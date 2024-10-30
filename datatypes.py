@@ -24,3 +24,4 @@ class ValidatorRegisterData(BaseModel):
     port: int
     _id: str
     endpoint: str
+    message: str

@@ -131,7 +131,7 @@ class ValidatorApp:
             payload = RegisterPayload(**await request.json())
             try:
                 collection = self.DB["validators"]
-                ss58_address, ip_address = client_data
+                ss58_address, ip_address, message = client_data
                 endpoint = f"http://{ip_address}:{payload.port}"
                 data = ValidatorRegisterData(
                     ss58_address=ss58_address,
@@ -139,6 +139,7 @@ class ValidatorApp:
                     port=payload.port,
                     endpoint=endpoint,
                     _id=ss58_address,
+                    message=message,
                 )
                 result = collection.update_one(
                     {"_id": ss58_address}, {"$set": data.model_dump()}, upsert=True
@@ -182,27 +183,29 @@ class ValidatorApp:
                     )
 
                 stakes = []
-                urls = []
+                ss58_addresses = []
                 for validator in validators.values():
                     stake = validator.get("stake", 1)
-                    endpoint = validator.get("endpoint")
-                    if not endpoint:
-                        continue  # Skip if endpoint is not available
                     stakes.append(stake)
-                    urls.append(endpoint)
 
-                if not urls:
+                    ss58_address = validator.get("ss58_address")
+                    ss58_addresses.append(ss58_address)
+
+                if not stakes:
                     print("No valid validator endpoints available")
                     raise HTTPException(
                         status_code=503, detail="No valid validator endpoints available"
                     )
-
-                selected_url = random.choices(urls, weights=stakes, k=1)[0]
+                hotkey = random.choices(ss58_addresses, weights=stakes, k=1)[0]
+                selected_url = validators[hotkey].get("endpoint")
+                message = validators[hotkey].get("message")
                 print(f"Selected {selected_url} for forwarding the request")
 
                 async with httpx.AsyncClient() as client:
                     response = await client.post(
-                        selected_url + "/forward", json=payload.model_dump()
+                        selected_url + "/forward",
+                        json=payload.model_dump(),
+                        headers={"message": message},
                     )
                     response.raise_for_status()
                     return response.json()

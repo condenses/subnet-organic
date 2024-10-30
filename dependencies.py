@@ -14,4 +14,4 @@ def check_authentication(request: Request):
     print(f"Authenticated {ss58_address}")
     ip_address = request.headers.get("X-Real-Ip") or request.client.host
 
-    return ss58_address, ip_address
+    return ss58_address, ip_address, message
