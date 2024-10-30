@@ -12,6 +12,6 @@ def check_authentication(request: Request):
     if not keypair.verify(message, signature):
         raise HTTPException(status_code=401, detail="Invalid token")
     print(f"Authenticated {ss58_address}")
-    ip_address = request.client.host
+    ip_address = request.headers.get("X-Real-Ip") or request.client.host
 
     return ss58_address, ip_address
