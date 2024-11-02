@@ -201,7 +201,7 @@ class ValidatorApp:
                 message = validators[hotkey].get("message")
                 print(f"Selected {selected_url} for forwarding the request")
 
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(timeout=32) as client:
                     response = await client.post(
                         selected_url + "/forward",
                         json=payload.model_dump(),
