@@ -141,6 +141,12 @@ class ValidatorApp:
                     _id=ss58_address,
                     message=message,
                 )
+                # Remove validators has same endpoint
+                result = collection.delete_many({"endpoint": endpoint})
+                print(
+                    f"Deleted {result.deleted_count} documents has same endpoint: {endpoint}"
+                )
+
                 result = collection.update_one(
                     {"_id": ss58_address}, {"$set": data.model_dump()}, upsert=True
                 )
