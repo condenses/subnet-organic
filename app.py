@@ -14,6 +14,7 @@ from utils import resync_in_background
 import random
 import httpx
 import time
+import threading
 
 
 class ValidatorApp:
@@ -64,6 +65,7 @@ class ValidatorApp:
 
         # Register API endpoints
         self.register_endpoints()
+        self.lock = threading.Lock()
 
     def update_validators_periodically(self):
         """
@@ -72,43 +74,44 @@ class ValidatorApp:
         """
         while True:
             try:
-                print("Updating in-memory validators list")
-                validators = list(self.DB["validators"].find())
-                updated_validators = []
+                with self.lock:
+                    print("Updating in-memory validators list")
+                    validators = list(self.DB["validators"].find())
+                    updated_validators = []
 
-                async def check_validator(validator):
-                    endpoint = validator.get("endpoint")
-                    if not endpoint:
+                    async def check_validator(validator):
+                        endpoint = validator.get("endpoint")
+                        if not endpoint:
+                            return None
+                        try:
+                            async with httpx.AsyncClient() as client:
+                                response = await client.get(endpoint + "/health")
+                                if response.status_code == 200:
+                                    return validator
+                        except httpx.RequestError as e:
+                            print(f"Validator at {endpoint} is unreachable: {e}")
                         return None
-                    try:
-                        async with httpx.AsyncClient() as client:
-                            response = await client.get(endpoint + "/health")
-                            if response.status_code == 200:
-                                return validator
-                    except httpx.RequestError as e:
-                        print(f"Validator at {endpoint} is unreachable: {e}")
-                    return None
 
-                # Use asyncio event loop for concurrent HTTP requests
-                import asyncio
+                    # Use asyncio event loop for concurrent HTTP requests
+                    import asyncio
 
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                tasks = [check_validator(validator) for validator in validators]
-                results = loop.run_until_complete(asyncio.gather(*tasks))
-                loop.close()
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    tasks = [check_validator(validator) for validator in validators]
+                    results = loop.run_until_complete(asyncio.gather(*tasks))
+                    loop.close()
 
-                # Filter out None results and update in-memory validators
-                updated_validators = [v for v in results if v is not None]
+                    # Filter out None results and update in-memory validators
+                    updated_validators = [v for v in results if v is not None]
 
-                # deduplicate by _id
-                updated_validators = {v["_id"]: v for v in updated_validators}
+                    # deduplicate by _id
+                    updated_validators = {v["_id"]: v for v in updated_validators}
 
-                self.in_memory_validators = updated_validators
+                    self.in_memory_validators = updated_validators
 
-                print(
-                    f"Updated in-memory validators list with {len(self.in_memory_validators)} validators"
-                )
+                    print(
+                        f"Updated in-memory validators list with {len(self.in_memory_validators)} validators"
+                    )
             except Exception as e:
                 print(f"Error during validators update: {e}")
 
@@ -152,7 +155,7 @@ class ValidatorApp:
                 )
                 print(f"Registered validator {ss58_address} at port {payload.port}")
                 print(f"Updated {result.modified_count} documents")
-
+                self.update_validators_periodically()
                 # Update in-memory validators immediately after registration
                 self.in_memory_validators[ss58_address] = data.model_dump()
                 print(
