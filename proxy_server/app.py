@@ -181,7 +181,7 @@ class ValidatorApp:
                 print(f"Registered validator {ss58_address} at port {payload.port}")
                 print(f"Updated {result.modified_count} documents")
                 # Update in-memory validators immediately after registration
-                self.update_validators_periodically()
+                self.update_validators()
                 self.in_memory_validators[ss58_address] = data.model_dump()
                 print(
                     "Current in_memory_validators:", self.in_memory_validators.values()
