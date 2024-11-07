@@ -1,5 +1,2 @@
-fastapi
-uvicorn
-bittensor
-pymongo
-httpx
+typer[all]
+requests
