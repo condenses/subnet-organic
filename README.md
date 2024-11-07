@@ -2,6 +2,14 @@
 
 This repository contains the **Validator Application** along with a CLI tool, **ncs-cli**, for interacting with the application. The validator app is built with FastAPI and can be deployed using Docker and Docker Compose, while the `ncs-cli` tool provides a convenient command-line interface for registering and making organic requests.
 
+This application allows validators to register and sell their miner bandwidth.
+To join, validators have to opt in some parameters when launch their subnet validating process at https://github.com/condenses/neural-condense-subnet.
+- `--validator.gate_port`: an opened port
+- `--validator.organic_client_url`: url of this app deployment
+
+![validator-app-white](https://github.com/user-attachments/assets/7ce80213-4ddd-4bf0-8b18-4df3715051f8)
+
+
 ---
 
 ## Table of Contents
