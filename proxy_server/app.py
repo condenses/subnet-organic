@@ -1,10 +1,6 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, Header
 from fastapi.exceptions import HTTPException
-from datatypes import (
-    RegisterPayload,
-    OrganicPayload,
-    ValidatorRegisterData,
-)
+from datatypes import RegisterPayload, OrganicPayload, ValidatorRegisterData
 from dependencies import check_authentication
 import pymongo
 import os
@@ -25,12 +21,13 @@ class ValidatorApp:
         print("Initializing ValidatorApp")
 
         # Read environment variables
-        self.NETUID = os.getenv("NETUID", 52)
+        self.NETUID = int(os.getenv("NETUID", 52))
         self.MONGOHOST = os.getenv("MONGOHOST", "localhost")
         self.MONGOPORT = int(os.getenv("MONGOPORT", 27017))
         self.MONGOUSER = os.getenv("MONGOUSER", "root")
         self.MONGOPASSWORD = os.getenv("MONGOPASSWORD", "example")
         self.SUBTENSOR_NETWORK = os.getenv("SUBTENSOR_NETWORK", "finney")
+        self.ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
 
         # Initialize MongoDB connection
         try:
@@ -125,6 +122,32 @@ class ValidatorApp:
         Register the API endpoints with the FastAPI app.
         """
 
+        @self.app.post("/api/user-register")
+        async def register_user(
+            request: Request,
+            admin_api_key: str = Header(...),
+        ):
+            """
+            Register a new user API key, authenticated by the admin API key.
+            """
+            if admin_api_key != self.ADMIN_API_KEY:
+                raise HTTPException(status_code=403, detail="Unauthorized")
+
+            payload = await request.json()
+            user_api_key = payload.get("api_key")
+
+            if not user_api_key:
+                raise HTTPException(status_code=400, detail="API key required")
+
+            try:
+                self.DB["users"].insert_one({"api_key": user_api_key})
+                return {"status": "success", "message": "User API key registered"}
+            except pymongo.errors.DuplicateKeyError:
+                raise HTTPException(status_code=400, detail="API key already exists")
+            except pymongo.errors.PyMongoError as e:
+                print(f"Database error during API key registration: {e}")
+                raise HTTPException(status_code=500, detail="Database Error")
+
         @self.app.post("/register")
         async def register(
             request: Request,
@@ -172,16 +195,16 @@ class ValidatorApp:
                 raise HTTPException(status_code=500, detail="Internal Server Error")
 
         @self.app.post("/api/organic")
-        async def organic(payload: OrganicPayload):
+        async def organic(payload: OrganicPayload, user_api_key: str = Header(...)):
             """
-            Handle organic requests and forward them to a selected validator.
-
-            Parameters:
-                payload (OrganicPayload): The payload containing the organic request data.
-
-            Returns:
-                dict: The response from the forwarded request.
+            Handle organic requests, authenticate with user API key, and forward to a selected validator.
             """
+            # Check if the user_api_key exists in the database
+            user = self.DB["users"].find_one({"api_key": user_api_key})
+            if not user:
+                raise HTTPException(status_code=403, detail="Unauthorized")
+
+            # Forward organic request as implemented previously
             try:
                 print(f"Received organic request with context {payload.context}")
 
