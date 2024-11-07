@@ -11,6 +11,7 @@ import random
 import httpx
 import time
 import threading
+import asyncio
 
 
 class ValidatorApp:
@@ -96,21 +97,16 @@ class ValidatorApp:
                     print(f"Validator at {endpoint} is unreachable: {e}")
                 return None
 
-            # Use asyncio event loop for concurrent HTTP requests
-            import asyncio
+            async def update_all_validators():
+                tasks = [check_validator(validator) for validator in validators]
+                results = await asyncio.gather(*tasks)
+                return [v for v in results if v is not None]
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            tasks = [check_validator(validator) for validator in validators]
-            results = loop.run_until_complete(asyncio.gather(*tasks))
-            loop.close()
+            # Use the current event loop and await the async update
+            updated_validators = asyncio.run(update_all_validators())
 
-            # Filter out None results and update in-memory validators
-            updated_validators = [v for v in results if v is not None]
-
-            # deduplicate by _id
+            # Deduplicate by _id and update in-memory validators
             updated_validators = {v["_id"]: v for v in updated_validators}
-
             self.in_memory_validators = updated_validators
 
             print(
