@@ -7,7 +7,7 @@ To join, validators have to opt in some parameters when launch their subnet vali
 - `--validator.gate_port`: an opened port
 - `--validator.organic_client_url`: url of this app deployment
 
-![validator-app-white](https://github.com/user-attachments/assets/7ce80213-4ddd-4bf0-8b18-4df3715051f8)
+![validator-app-fixed](https://github.com/user-attachments/assets/4d286efa-08a4-44c4-ad4c-ef3517e1c5b6)
 
 
 ---
