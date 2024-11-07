@@ -123,7 +123,10 @@ class ValidatorApp:
         """
 
         @self.app.post("/api/user-register")
-        async def register(request: Request, admin_api_key: str = Header(...)):
+        async def register_user(
+            request: Request,
+            admin_api_key: str = Header(...),
+        ):
             """
             Register a new user API key, authenticated by the admin API key.
             """

@@ -99,7 +99,7 @@ The Organic API provides an endpoint to submit a request with specific parameter
 
 **Endpoint:** `POST /api/user-register`  
 **Headers:**  
-  - `admin_api_key`: The admin API key (defined in `docker-compose.yml`)
+  - `admin-api-key`: The admin API key (defined in `docker-compose.yml`)
 
 **Request Body Parameters:**
 
@@ -112,7 +112,7 @@ The Organic API provides an endpoint to submit a request with specific parameter
 ```bash
 curl -X POST "http://localhost:8000/api/user-register" \
      -H "Content-Type: application/json" \
-     -H "admin_api_key: your_admin_api_key_here" \
+     -H "admin-api-key: your_admin_api_key_here" \
      -d '{"api_key": "user_api_key_here"}'
 ```
 
@@ -120,7 +120,7 @@ curl -X POST "http://localhost:8000/api/user-register" \
 
 **Endpoint:** `POST /api/organic`  
 **Headers:**  
-  - `user_api_key`: User's API key (as registered above)
+  - `user-api-key`: User's API key (as registered above)
 
 **Request Body Parameters:**
 
@@ -146,7 +146,7 @@ On a successful request, the endpoint will return a JSON response containing the
 ```bash
 curl -X POST "http://localhost:8000/api/organic" \
      -H "Content-Type: application/json" \
-     -H "user_api_key: user_api_key_here" \
+     -H "user-api-key: user_api_key_here" \
      -d '{
            "context": "your_context_here",
            "tier": "inference_0",
@@ -193,6 +193,11 @@ This cli tool is used to interact with the `proxy_server` application. The tool 
 
    After installation, you can use `ncs-cli` with the following commands:
 
+   #### See Available Commands
+   ```bash
+   ncs-cli --help
+   ```
+
    #### Register a User API Key
 
    To register a new user API key, use the `register-user` command:
@@ -232,6 +237,7 @@ This cli tool is used to interact with the `proxy_server` application. The tool 
    $ ncs-cli organic-request
    Enter the value for api-key: [Hidden]
    Enter the value for context: Hello, world!
+   Enter the value for output_file: compressed_tokens.json
    Response received:
     {
       "compressed_tokens_b64": "base64_encoded_compressed_tokens"
