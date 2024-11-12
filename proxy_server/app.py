@@ -29,6 +29,7 @@ class ValidatorApp:
         self.MONGOPASSWORD = os.getenv("MONGOPASSWORD", "example")
         self.SUBTENSOR_NETWORK = os.getenv("SUBTENSOR_NETWORK", "finney")
         self.ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+        self.MIN_STAKE = int(os.getenv("MIN_STAKE", 1000))
 
         # Initialize MongoDB connection
         try:
@@ -214,18 +215,25 @@ class ValidatorApp:
 
                 stakes = []
                 ss58_addresses = []
+                metagraph = self.subtensor.metagraph
                 for validator in validators.values():
-                    stake = validator.get("stake", 1)
-                    stakes.append(stake)
-
-                    ss58_address = validator.get("ss58_address")
-                    ss58_addresses.append(ss58_address)
+                    try:
+                        ss58_address = validator.get("ss58_address")
+                        uid = metagraph.hotkeys.index(ss58_address)
+                        stake = metagraph.total_stake[uid]
+                        if stake < self.MIN_STAKE:
+                            continue
+                        stakes.append(stake)
+                        ss58_addresses.append(ss58_address)
+                    except ValueError:
+                        print(f"Validator {ss58_address} not found in metagraph")
 
                 if not stakes:
                     print("No valid validator endpoints available")
                     raise HTTPException(
                         status_code=503, detail="No valid validator endpoints available"
                     )
+                print(f"Available stakes: {stakes}")
                 hotkey = random.choices(ss58_addresses, weights=stakes, k=1)[0]
                 selected_url = validators[hotkey].get("endpoint")
                 message = validators[hotkey].get("message")
