@@ -56,6 +56,7 @@ class ValidatorApp:
         self.validators = []
 
         # Start background tasks
+        self.lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.executor.submit(resync_in_background, self.metagraph)
         self.executor.submit(self.update_validators_periodically)
@@ -65,7 +66,6 @@ class ValidatorApp:
 
         # Register API endpoints
         self.register_endpoints()
-        self.lock = threading.Lock()
 
     def update_validators_periodically(self):
         """
