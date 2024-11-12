@@ -216,12 +216,11 @@ class ValidatorApp:
 
                 stakes = []
                 ss58_addresses = []
-                metagraph = self.subtensor.metagraph
                 for validator in validators.values():
                     try:
                         ss58_address = validator.get("ss58_address")
-                        uid = metagraph.hotkeys.index(ss58_address)
-                        stake = metagraph.total_stake[uid]
+                        uid = self.metagraph.hotkeys.index(ss58_address)
+                        stake = self.metagraph.total_stake[uid]
                         if stake < self.MIN_STAKE:
                             continue
                         stakes.append(stake)
