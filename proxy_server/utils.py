@@ -6,8 +6,8 @@ import logging
 logger = logging.getLogger("Utils")
 
 
-def resync_in_background(subtensor: bt.Subtensor):
+def resync_in_background(metagraph):
     while True:
         logger.info("Resyncing subtensor metagraph")
-        subtensor.metagraph.sync()
+        metagraph.sync()
         time.sleep(60)

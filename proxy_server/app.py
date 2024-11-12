@@ -45,6 +45,7 @@ class ValidatorApp:
         # Initialize Subtensor
         try:
             self.subtensor = bt.subtensor(network=self.SUBTENSOR_NETWORK)
+            self.metagraph = self.subtensor.metagraph(self.NETUID)
             print(f"Connected to Subtensor network {self.SUBTENSOR_NETWORK}")
         except Exception as e:
             print(f"Failed to initialize Subtensor: {e}")
@@ -56,7 +57,7 @@ class ValidatorApp:
 
         # Start background tasks
         self.executor = ThreadPoolExecutor(max_workers=2)
-        self.executor.submit(resync_in_background, self.subtensor)
+        self.executor.submit(resync_in_background, self.metagraph)
         self.executor.submit(self.update_validators_periodically)
 
         # Initialize FastAPI app
