@@ -9,9 +9,12 @@ from concurrent.futures import ThreadPoolExecutor
 from utils import resync_in_background
 import random
 import httpx
-import time
-import threading
 import asyncio
+from logging import getLogger, basicConfig
+
+# Setup logging
+basicConfig(level="INFO")
+logger = getLogger(__name__)
 
 
 class ValidatorApp:
@@ -19,7 +22,7 @@ class ValidatorApp:
         """
         Initialize the ValidatorApp with necessary configurations, database connections, and background tasks.
         """
-        print("Initializing ValidatorApp")
+        logger.info("Initializing ValidatorApp")
 
         # Read environment variables
         self.NETUID = int(os.getenv("NETUID", 52))
@@ -32,34 +35,22 @@ class ValidatorApp:
         self.MIN_STAKE = int(os.getenv("MIN_STAKE", 1000))
 
         # Initialize MongoDB connection
-        try:
-            self.client = pymongo.MongoClient(
-                f"mongodb://{self.MONGOUSER}:{self.MONGOPASSWORD}@{self.MONGOHOST}:{self.MONGOPORT}"
-            )
-            self.DB = self.client["ncs-client"]
-            print(f"Connected to MongoDB at {self.MONGOHOST}:{self.MONGOPORT}")
-        except Exception as e:
-            print(f"Failed to connect to MongoDB: {e}")
-            raise
+        self.client = None
+        self.DB = None
+        self.initialize_mongo_connection()
 
         # Initialize Subtensor
-        try:
-            self.subtensor = bt.subtensor(network=self.SUBTENSOR_NETWORK)
-            self.metagraph = self.subtensor.metagraph(self.NETUID)
-            print(f"Connected to Subtensor network {self.SUBTENSOR_NETWORK}")
-        except Exception as e:
-            print(f"Failed to initialize Subtensor: {e}")
-            raise
+        self.subtensor = None
+        self.metagraph = None
+        self.initialize_subtensor()
 
         # Initialize in-memory validators list and a lock for thread safety
         self.in_memory_validators = {}
-        self.validators = []
+        self.lock = asyncio.Lock()
 
         # Start background tasks
-        self.lock = threading.Lock()
-        self.executor = ThreadPoolExecutor(max_workers=2)
-        self.executor.submit(resync_in_background, self.metagraph)
-        self.executor.submit(self.update_validators_periodically)
+        self.background_tasks = []
+        self.start_background_tasks()
 
         # Initialize FastAPI app
         self.app = FastAPI()
@@ -67,22 +58,45 @@ class ValidatorApp:
         # Register API endpoints
         self.register_endpoints()
 
-    def update_validators_periodically(self):
-        """
-        Periodically update the in-memory validators list by checking their availability.
-        This function runs in a background thread and updates the list every 15 minutes.
-        """
+    def initialize_mongo_connection(self):
+        try:
+            self.client = pymongo.MongoClient(
+                f"mongodb://{self.MONGOUSER}:{self.MONGOPASSWORD}@{self.MONGOHOST}:{self.MONGOPORT}",
+                serverSelectionTimeoutMS=5000,
+            )
+            self.client.admin.command("ping")  # Test connection
+            self.DB = self.client["ncs-client"]
+            logger.info(f"Connected to MongoDB at {self.MONGOHOST}:{self.MONGOPORT}")
+        except pymongo.errors.PyMongoError as e:
+            logger.error(f"Failed to connect to MongoDB: {e}")
+            raise
+
+    def initialize_subtensor(self):
+        try:
+            self.subtensor = bt.subtensor(network=self.SUBTENSOR_NETWORK)
+            self.metagraph = self.subtensor.metagraph(self.NETUID)
+            logger.info(f"Connected to Subtensor network {self.SUBTENSOR_NETWORK}")
+        except Exception as e:
+            logger.error(f"Failed to initialize Subtensor: {e}")
+            raise
+
+    def start_background_tasks(self):
+        # Start background tasks safely
+        loop = asyncio.get_event_loop()
+        self.background_tasks.append(loop.create_task(resync_in_background(self.metagraph)))
+        self.background_tasks.append(loop.create_task(self.update_validators_periodically()))
+
+    async def update_validators_periodically(self):
         while True:
             try:
-                self.update_validators()
+                await self.update_validators()
             except Exception as e:
-                print(f"Error during validators update: {e}")
-            # Sleep for 15 minutes before the next update
-            time.sleep(900)
+                logger.error(f"Error during validators update: {e}")
+            await asyncio.sleep(900)  # Sleep for 15 minutes
 
-    def update_validators(self):
-        with self.lock:
-            print("Updating in-memory validators list")
+    async def update_validators(self):
+        async with self.lock:
+            logger.info("Updating in-memory validators list")
             validators = list(self.DB["validators"].find())
             updated_validators = []
 
@@ -92,28 +106,19 @@ class ValidatorApp:
                     return None
                 try:
                     async with httpx.AsyncClient() as client:
-                        response = await client.get(endpoint + "/health")
+                        response = await client.get(endpoint + "/health", timeout=4)
                         if response.status_code == 200:
                             return validator
                 except httpx.RequestError as e:
-                    print(f"Validator at {endpoint} is unreachable: {e}")
+                    logger.warning(f"Validator at {endpoint} is unreachable: {e}")
                 return None
 
-            async def update_all_validators():
-                tasks = [check_validator(validator) for validator in validators]
-                results = await asyncio.gather(*tasks)
-                return [v for v in results if v is not None]
+            tasks = [check_validator(validator) for validator in validators]
+            results = await asyncio.gather(*tasks)
+            updated_validators = {v["_id"]: v for v in results if v}
 
-            # Use the current event loop and await the async update
-            updated_validators = asyncio.run(update_all_validators())
-
-            # Deduplicate by _id and update in-memory validators
-            updated_validators = {v["_id"]: v for v in updated_validators}
             self.in_memory_validators = updated_validators
-
-            print(
-                f"Updated in-memory validators list with {len(self.in_memory_validators)} validators"
-            )
+            logger.info(f"Updated in-memory validators list with {len(self.in_memory_validators)} validators")
 
     def register_endpoints(self):
         """
@@ -143,7 +148,7 @@ class ValidatorApp:
             except pymongo.errors.DuplicateKeyError:
                 raise HTTPException(status_code=400, detail="API key already exists")
             except pymongo.errors.PyMongoError as e:
-                print(f"Database error during API key registration: {e}")
+                logger.error(f"Database error during API key registration: {e}")
                 raise HTTPException(status_code=500, detail="Database Error")
 
         @self.app.post("/register")
@@ -167,29 +172,22 @@ class ValidatorApp:
                     _id=ss58_address,
                     message=message,
                 )
-                # Remove validators has same endpoint
+
                 result = collection.delete_many({"endpoint": endpoint})
-                print(
-                    f"Deleted {result.deleted_count} documents has same endpoint: {endpoint}"
-                )
+                logger.info(f"Deleted {result.deleted_count} documents with the same endpoint: {endpoint}")
 
                 result = collection.update_one(
                     {"_id": ss58_address}, {"$set": data.model_dump()}, upsert=True
                 )
-                print(f"Registered validator {ss58_address} at port {payload.port}")
-                print(f"Updated {result.modified_count} documents")
-                # Update in-memory validators immediately after registration
-                self.update_validators()
+                logger.info(f"Registered validator {ss58_address} at port {payload.port}")
+                await self.update_validators()
                 self.in_memory_validators[ss58_address] = data.model_dump()
-                print(
-                    "Current in_memory_validators:", self.in_memory_validators.values()
-                )
                 return {"status": "success"}
             except pymongo.errors.PyMongoError as e:
-                print(f"Database error during registration: {e}")
+                logger.error(f"Database error during registration: {e}")
                 raise HTTPException(status_code=500, detail="Database Error")
             except Exception as e:
-                print(f"Unexpected error during registration: {e}")
+                logger.error(f"Unexpected error during registration: {e}")
                 raise HTTPException(status_code=500, detail="Internal Server Error")
 
         @self.app.post("/api/organic")
@@ -197,22 +195,14 @@ class ValidatorApp:
             """
             Handle organic requests, authenticate with user API key, and forward to a selected validator.
             """
-            # Check if the user_api_key exists in the database
             user = self.DB["users"].find_one({"api_key": user_api_key})
             if not user:
                 raise HTTPException(status_code=403, detail="Unauthorized")
 
-            # Forward organic request as implemented previously
             try:
-                print(f"Received organic request with context {payload.context}")
-
                 validators = self.in_memory_validators.copy()
-
                 if not validators:
-                    print("No validators available in the in-memory list")
-                    raise HTTPException(
-                        status_code=503, detail="No validators available"
-                    )
+                    raise HTTPException(status_code=503, detail="No validators available")
 
                 stakes = []
                 ss58_addresses = []
@@ -226,18 +216,14 @@ class ValidatorApp:
                         stakes.append(stake)
                         ss58_addresses.append(ss58_address)
                     except ValueError:
-                        print(f"Validator {ss58_address} not found in metagraph")
+                        logger.warning(f"Validator {ss58_address} not found in metagraph")
 
                 if not stakes:
-                    print("No valid validator endpoints available")
-                    raise HTTPException(
-                        status_code=503, detail="No valid validator endpoints available"
-                    )
-                print(f"Available stakes: {stakes}")
+                    raise HTTPException(status_code=503, detail="No valid validator endpoints available")
+
                 hotkey = random.choices(ss58_addresses, weights=stakes, k=1)[0]
                 selected_url = validators[hotkey].get("endpoint")
                 message = validators[hotkey].get("message")
-                print(f"Selected {selected_url} for forwarding the request")
 
                 async with httpx.AsyncClient(timeout=32) as client:
                     response = await client.post(
@@ -246,18 +232,23 @@ class ValidatorApp:
                         headers={"message": message},
                     )
                     if response.status_code != 200:
-                        print(
-                            f"Error during organic request forwarding: {response.status_code}"
-                        )
-                        raise HTTPException(
-                            status_code=response.status_code, detail=response.text
-                        )
+                        raise HTTPException(status_code=response.status_code, detail=response.text)
                     return response.json()
             except httpx.RequestError as e:
-                print(f"Error during organic request forwarding: {e}")
+                logger.error(f"Error during organic request forwarding: {e}")
                 raise HTTPException(status_code=503, detail="Forwarding Error")
 
-    # Additional methods and utilities can be added here if necessary
+    def shutdown(self):
+        """
+        Cleanup resources on app shutdown.
+        """
+        if self.client:
+            self.client.close()
+        for task in self.background_tasks:
+            task.cancel()
+
+
+# Instantiate the ValidatorApp and get the FastAPI
 
 
 # Instantiate the ValidatorApp and get the FastAPI app
