@@ -83,8 +83,12 @@ class ValidatorApp:
     def start_background_tasks(self):
         # Start background tasks safely
         loop = asyncio.get_event_loop()
-        self.background_tasks.append(loop.create_task(resync_in_background(self.metagraph)))
-        self.background_tasks.append(loop.create_task(self.update_validators_periodically()))
+        self.background_tasks.append(
+            loop.create_task(resync_in_background(self.metagraph))
+        )
+        self.background_tasks.append(
+            loop.create_task(self.update_validators_periodically())
+        )
 
     async def update_validators_periodically(self):
         while True:
@@ -118,7 +122,9 @@ class ValidatorApp:
             updated_validators = {v["_id"]: v for v in results if v}
 
             self.in_memory_validators = updated_validators
-            logger.info(f"Updated in-memory validators list with {len(self.in_memory_validators)} validators")
+            logger.info(
+                f"Updated in-memory validators list with {len(self.in_memory_validators)} validators"
+            )
 
     def register_endpoints(self):
         """
@@ -174,12 +180,16 @@ class ValidatorApp:
                 )
 
                 result = collection.delete_many({"endpoint": endpoint})
-                logger.info(f"Deleted {result.deleted_count} documents with the same endpoint: {endpoint}")
+                logger.info(
+                    f"Deleted {result.deleted_count} documents with the same endpoint: {endpoint}"
+                )
 
                 result = collection.update_one(
                     {"_id": ss58_address}, {"$set": data.model_dump()}, upsert=True
                 )
-                logger.info(f"Registered validator {ss58_address} at port {payload.port}")
+                logger.info(
+                    f"Registered validator {ss58_address} at port {payload.port}"
+                )
                 await self.update_validators()
                 self.in_memory_validators[ss58_address] = data.model_dump()
                 return {"status": "success"}
@@ -202,7 +212,9 @@ class ValidatorApp:
             try:
                 validators = self.in_memory_validators.copy()
                 if not validators:
-                    raise HTTPException(status_code=503, detail="No validators available")
+                    raise HTTPException(
+                        status_code=503, detail=f"No validators available: {validators}"
+                    )
 
                 stakes = []
                 ss58_addresses = []
@@ -216,10 +228,14 @@ class ValidatorApp:
                         stakes.append(stake)
                         ss58_addresses.append(ss58_address)
                     except ValueError:
-                        logger.warning(f"Validator {ss58_address} not found in metagraph")
+                        logger.warning(
+                            f"Validator {ss58_address} not found in metagraph"
+                        )
 
                 if not stakes:
-                    raise HTTPException(status_code=503, detail="No valid validator endpoints available")
+                    raise HTTPException(
+                        status_code=503, detail="No valid validator endpoints available"
+                    )
 
                 hotkey = random.choices(ss58_addresses, weights=stakes, k=1)[0]
                 selected_url = validators[hotkey].get("endpoint")
@@ -232,7 +248,9 @@ class ValidatorApp:
                         headers={"message": message},
                     )
                     if response.status_code != 200:
-                        raise HTTPException(status_code=response.status_code, detail=response.text)
+                        raise HTTPException(
+                            status_code=response.status_code, detail=response.text
+                        )
                     return response.json()
             except httpx.RequestError as e:
                 logger.error(f"Error during organic request forwarding: {e}")
