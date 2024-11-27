@@ -10,11 +10,10 @@ from utils import resync_in_background
 import random
 import httpx
 import asyncio
-from logging import getLogger, basicConfig
+import structlog
 
 # Setup logging
-basicConfig(level="INFO")
-logger = getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class ValidatorApp:
@@ -22,7 +21,7 @@ class ValidatorApp:
         """
         Initialize the ValidatorApp with necessary configurations, database connections, and background tasks.
         """
-        logger.info("Initializing ValidatorApp")
+        logger.info("initializing_validator_app")
 
         # Read environment variables
         self.NETUID = int(os.getenv("NETUID", 52))
@@ -33,6 +32,12 @@ class ValidatorApp:
         self.SUBTENSOR_NETWORK = os.getenv("SUBTENSOR_NETWORK", "finney")
         self.ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
         self.MIN_STAKE = int(os.getenv("MIN_STAKE", 1000))
+        
+        # Get whitelist validators from env
+        whitelist_str = os.getenv("WHITELIST_VALIDATORS", "")
+        self.WHITELIST_VALIDATORS = [v.strip() for v in whitelist_str.split(",")] if whitelist_str else []
+        if self.WHITELIST_VALIDATORS:
+            logger.info("whitelist_validators", validators=self.WHITELIST_VALIDATORS)
 
         # Initialize MongoDB connection
         self.client = None
@@ -66,18 +71,18 @@ class ValidatorApp:
             )
             self.client.admin.command("ping")  # Test connection
             self.DB = self.client["ncs-client"]
-            logger.info(f"Connected to MongoDB at {self.MONGOHOST}:{self.MONGOPORT}")
+            logger.info("mongodb_connected", host=self.MONGOHOST, port=self.MONGOPORT)
         except pymongo.errors.PyMongoError as e:
-            logger.error(f"Failed to connect to MongoDB: {e}")
+            logger.error("mongodb_connection_failed", error=str(e))
             raise
 
     def initialize_subtensor(self):
         try:
             self.subtensor = bt.subtensor(network=self.SUBTENSOR_NETWORK)
             self.metagraph = self.subtensor.metagraph(self.NETUID)
-            logger.info(f"Connected to Subtensor network {self.SUBTENSOR_NETWORK}")
+            logger.info("subtensor_connected", network=self.SUBTENSOR_NETWORK)
         except Exception as e:
-            logger.error(f"Failed to initialize Subtensor: {e}")
+            logger.error("subtensor_initialization_failed", error=str(e))
             raise
 
     def start_background_tasks(self):
@@ -95,12 +100,12 @@ class ValidatorApp:
             try:
                 await self.update_validators()
             except Exception as e:
-                logger.error(f"Error during validators update: {e}")
+                logger.error("validators_update_error", error=str(e))
             await asyncio.sleep(900)  # Sleep for 15 minutes
 
     async def update_validators(self):
         async with self.lock:
-            logger.info("Updating in-memory validators list")
+            logger.info("updating_validators")
             validators = list(self.DB["validators"].find())
             updated_validators = []
 
@@ -114,7 +119,7 @@ class ValidatorApp:
                         if response.status_code == 200:
                             return validator
                 except httpx.RequestError as e:
-                    logger.warning(f"Validator at {endpoint} is unreachable: {e}")
+                    logger.warning("validator_unreachable", endpoint=endpoint, error=str(e))
                 return None
 
             tasks = [check_validator(validator) for validator in validators]
@@ -123,7 +128,8 @@ class ValidatorApp:
 
             self.in_memory_validators = updated_validators
             logger.info(
-                f"Updated in-memory validators list with {len(self.in_memory_validators)} validators"
+                "validators_updated",
+                count=len(self.in_memory_validators)
             )
 
     def register_endpoints(self):
@@ -150,11 +156,12 @@ class ValidatorApp:
 
             try:
                 self.DB["users"].insert_one({"api_key": user_api_key})
+                logger.info("user_api_key_registered")
                 return {"status": "success", "message": "User API key registered"}
             except pymongo.errors.DuplicateKeyError:
                 raise HTTPException(status_code=400, detail="API key already exists")
             except pymongo.errors.PyMongoError as e:
-                logger.error(f"Database error during API key registration: {e}")
+                logger.error("api_key_registration_failed", error=str(e))
                 raise HTTPException(status_code=500, detail="Database Error")
 
         @self.app.post("/register")
@@ -169,6 +176,12 @@ class ValidatorApp:
             try:
                 collection = self.DB["validators"]
                 ss58_address, ip_address, message = client_data
+                
+                # Check if validator is in whitelist if whitelist is enabled
+                if self.WHITELIST_VALIDATORS and ss58_address not in self.WHITELIST_VALIDATORS:
+                    logger.warning("validator_not_in_whitelist", ss58_address=ss58_address)
+                    raise HTTPException(status_code=403, detail="Validator not in whitelist")
+                    
                 endpoint = f"http://{ip_address}:{payload.port}"
                 data = ValidatorRegisterData(
                     ss58_address=ss58_address,
@@ -181,23 +194,27 @@ class ValidatorApp:
 
                 result = collection.delete_many({"endpoint": endpoint})
                 logger.info(
-                    f"Deleted {result.deleted_count} documents with the same endpoint: {endpoint}"
+                    "deleted_duplicate_endpoints",
+                    endpoint=endpoint,
+                    count=result.deleted_count
                 )
 
                 result = collection.update_one(
                     {"_id": ss58_address}, {"$set": data.model_dump()}, upsert=True
                 )
                 logger.info(
-                    f"Registered validator {ss58_address} at port {payload.port}"
+                    "validator_registered",
+                    ss58_address=ss58_address,
+                    port=payload.port
                 )
                 await self.update_validators()
                 self.in_memory_validators[ss58_address] = data.model_dump()
                 return {"status": "success"}
             except pymongo.errors.PyMongoError as e:
-                logger.error(f"Database error during registration: {e}")
+                logger.error("registration_db_error", error=str(e))
                 raise HTTPException(status_code=500, detail="Database Error")
             except Exception as e:
-                logger.error(f"Unexpected error during registration: {e}")
+                logger.error("registration_error", error=str(e))
                 raise HTTPException(status_code=500, detail="Internal Server Error")
 
         @self.app.post("/api/organic")
@@ -212,6 +229,7 @@ class ValidatorApp:
             try:
                 validators = self.in_memory_validators.copy()
                 if not validators:
+                    logger.error("no_validators_available", validators=validators)
                     raise HTTPException(
                         status_code=503, detail=f"No validators available: {validators}"
                     )
@@ -221,6 +239,10 @@ class ValidatorApp:
                 for validator in validators.values():
                     try:
                         ss58_address = validator.get("ss58_address")
+                        # Skip if whitelist is enabled and validator not in whitelist
+                        if self.WHITELIST_VALIDATORS and ss58_address not in self.WHITELIST_VALIDATORS:
+                            continue
+                            
                         uid = self.metagraph.hotkeys.index(ss58_address)
                         stake = self.metagraph.total_stake[uid]
                         if stake < self.MIN_STAKE:
@@ -229,10 +251,12 @@ class ValidatorApp:
                         ss58_addresses.append(ss58_address)
                     except ValueError:
                         logger.warning(
-                            f"Validator {ss58_address} not found in metagraph"
+                            "validator_not_in_metagraph",
+                            ss58_address=ss58_address
                         )
 
                 if not stakes:
+                    logger.error("no_valid_validators")
                     raise HTTPException(
                         status_code=503, detail="No valid validator endpoints available"
                     )
@@ -253,7 +277,7 @@ class ValidatorApp:
                         )
                     return response.json()
             except httpx.RequestError as e:
-                logger.error(f"Error during organic request forwarding: {e}")
+                logger.error("organic_request_forwarding_error", error=str(e))
                 raise HTTPException(status_code=503, detail="Forwarding Error")
 
     def shutdown(self):
