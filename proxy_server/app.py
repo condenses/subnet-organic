@@ -104,33 +104,35 @@ class ValidatorApp:
             await asyncio.sleep(900)  # Sleep for 15 minutes
 
     async def update_validators(self):
-        async with self.lock:
-            logger.info("updating_validators")
-            validators = list(self.DB["validators"].find())
-            updated_validators = []
-
-            async def check_validator(validator):
-                endpoint = validator.get("endpoint")
-                if not endpoint:
-                    return None
-                try:
-                    async with httpx.AsyncClient() as client:
-                        response = await client.get(endpoint + "/health", timeout=4)
-                        if response.status_code == 200:
-                            return validator
-                except httpx.RequestError as e:
-                    logger.warning("validator_unreachable", endpoint=endpoint, error=str(e))
+        # Get validators list outside the lock since DB operation doesn't affect shared state
+        logger.info("updating_validators")
+        validators = list(self.DB["validators"].find())
+        
+        async def check_validator(validator):
+            endpoint = validator.get("endpoint")
+            if not endpoint:
                 return None
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(endpoint + "/health", timeout=4)
+                    if response.status_code == 200:
+                        return validator
+            except httpx.RequestError as e:
+                logger.warning("validator_unreachable", endpoint=endpoint, error=str(e))
+            return None
 
-            tasks = [check_validator(validator) for validator in validators]
-            results = await asyncio.gather(*tasks)
-            updated_validators = {v["_id"]: v for v in results if v}
+        tasks = [check_validator(validator) for validator in validators]
+        results = await asyncio.gather(*tasks)
+        updated_validators = {v["_id"]: v for v in results if v}
 
+        # Only lock when updating the shared state
+        async with self.lock:
             self.in_memory_validators = updated_validators
-            logger.info(
-                "validators_updated",
-                count=len(self.in_memory_validators)
-            )
+            
+        logger.info(
+            "validators_updated",
+            count=len(updated_validators)
+        )
 
     def register_endpoints(self):
         """
