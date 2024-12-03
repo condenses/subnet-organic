@@ -17,4 +17,4 @@ async def resync_in_background(metagraph):
             logger.info("Metagraph resync completed.")
         except Exception as e:
             logger.error(f"Error during metagraph resync: {e}")
-        await asyncio.sleep(60)  # Wait for 60 seconds before the next sync
+        await asyncio.sleep(600)  # Wait for 60 seconds before the next sync

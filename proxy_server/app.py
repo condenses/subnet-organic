@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, Depends, Header
 from fastapi.exceptions import HTTPException
 from datatypes import RegisterPayload, OrganicPayload, ValidatorRegisterData
 from dependencies import check_authentication
-import pymongo
+import motor.motor_asyncio
 import os
 import bittensor as bt
 from concurrent.futures import ThreadPoolExecutor
@@ -65,14 +65,12 @@ class ValidatorApp:
 
     def initialize_mongo_connection(self):
         try:
-            self.client = pymongo.MongoClient(
-                f"mongodb://{self.MONGOUSER}:{self.MONGOPASSWORD}@{self.MONGOHOST}:{self.MONGOPORT}",
-                serverSelectionTimeoutMS=5000,
+            self.client = motor.motor_asyncio.AsyncIOMotorClient(
+                f"mongodb://{self.MONGOUSER}:{self.MONGOPASSWORD}@{self.MONGOHOST}:{self.MONGOPORT}"
             )
-            self.client.admin.command("ping")  # Test connection
             self.DB = self.client["ncs-client"]
             logger.info("mongodb_connected", host=self.MONGOHOST, port=self.MONGOPORT)
-        except pymongo.errors.PyMongoError as e:
+        except Exception as e:
             logger.error("mongodb_connection_failed", error=str(e))
             raise
 
@@ -106,7 +104,7 @@ class ValidatorApp:
     async def update_validators(self):
         # Get validators list outside the lock since DB operation doesn't affect shared state
         logger.info("updating_validators")
-        validators = list(self.DB["validators"].find())
+        validators = await self.DB["validators"].find().to_list(None)
         
         async def check_validator(validator):
             endpoint = validator.get("endpoint")
@@ -157,12 +155,12 @@ class ValidatorApp:
                 raise HTTPException(status_code=400, detail="API key required")
 
             try:
-                self.DB["users"].insert_one({"api_key": user_api_key})
+                await self.DB["users"].insert_one({"api_key": user_api_key})
                 logger.info("user_api_key_registered")
                 return {"status": "success", "message": "User API key registered"}
-            except pymongo.errors.DuplicateKeyError:
-                raise HTTPException(status_code=400, detail="API key already exists")
-            except pymongo.errors.PyMongoError as e:
+            except Exception as e:
+                if "duplicate key error" in str(e):
+                    raise HTTPException(status_code=400, detail="API key already exists")
                 logger.error("api_key_registration_failed", error=str(e))
                 raise HTTPException(status_code=500, detail="Database Error")
 
@@ -194,14 +192,14 @@ class ValidatorApp:
                     message=message,
                 )
 
-                result = collection.delete_many({"endpoint": endpoint})
+                result = await collection.delete_many({"endpoint": endpoint})
                 logger.info(
                     "deleted_duplicate_endpoints",
                     endpoint=endpoint,
                     count=result.deleted_count
                 )
 
-                result = collection.update_one(
+                result = await collection.update_one(
                     {"_id": ss58_address}, {"$set": data.model_dump()}, upsert=True
                 )
                 logger.info(
@@ -212,9 +210,6 @@ class ValidatorApp:
                 await self.update_validators()
                 self.in_memory_validators[ss58_address] = data.model_dump()
                 return {"status": "success"}
-            except pymongo.errors.PyMongoError as e:
-                logger.error("registration_db_error", error=str(e))
-                raise HTTPException(status_code=500, detail="Database Error")
             except Exception as e:
                 logger.error("registration_error", error=str(e))
                 raise HTTPException(status_code=500, detail="Internal Server Error")
@@ -224,7 +219,8 @@ class ValidatorApp:
             """
             Handle organic requests, authenticate with user API key, and forward to a selected validator.
             """
-            user = self.DB["users"].find_one({"api_key": user_api_key})
+            print("organic request received, api key:", user_api_key)
+            user = await self.DB["users"].find_one({"api_key": user_api_key})
             if not user:
                 raise HTTPException(status_code=403, detail="Unauthorized")
 
