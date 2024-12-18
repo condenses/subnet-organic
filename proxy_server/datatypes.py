@@ -1,5 +1,4 @@
-from pydantic import BaseModel
-from pydantic.validators import validator
+from pydantic import BaseModel, field_validator
 
 
 class RegisterPayload(BaseModel):
@@ -13,7 +12,8 @@ class OrganicPayload(BaseModel):
     miner_uid: int = -1
     top_incentive: float = 0.9
 
-    @validator('context')
+    @field_validator('context')
+    @classmethod
     def validate_context_length(cls, v):
         if len(v) >= 25000:
             raise ValueError('context must be less than 25000 characters')
