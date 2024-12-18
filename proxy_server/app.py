@@ -11,6 +11,7 @@ import random
 import httpx
 import asyncio
 import structlog
+from datetime import datetime, timedelta
 
 # Setup logging
 logger = structlog.get_logger()
@@ -32,6 +33,9 @@ class ValidatorApp:
         self.SUBTENSOR_NETWORK = os.getenv("SUBTENSOR_NETWORK", "finney")
         self.ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
         self.MIN_STAKE = int(os.getenv("MIN_STAKE", 1000))
+        self.ROOT_USER_API_KEY = os.getenv("ROOT_USER_API_KEY")
+        self.RATE_LIMIT = 5  # requests per minute
+        self.RATE_WINDOW = 60  # seconds
         
         # Get whitelist validators from env
         whitelist_str = os.getenv("WHITELIST_VALIDATORS", "")
@@ -132,6 +136,31 @@ class ValidatorApp:
             count=len(updated_validators)
         )
 
+    async def check_rate_limit(self, api_key: str) -> bool:
+        """Check if the request should be rate limited using MongoDB"""
+        if api_key == self.ROOT_USER_API_KEY:
+            return True
+            
+        now = datetime.utcnow()
+        window_start = now - timedelta(seconds=self.RATE_WINDOW)
+        
+        # Count recent requests
+        count = await self.DB["request_logs"].count_documents({
+            "api_key": api_key,
+            "timestamp": {"$gte": window_start}
+        })
+        
+        if count >= self.RATE_LIMIT:
+            return False
+            
+        # Log this request
+        await self.DB["request_logs"].insert_one({
+            "api_key": api_key,
+            "timestamp": now
+        })
+        
+        return True
+
     def register_endpoints(self):
         """
         Register the API endpoints with the FastAPI app.
@@ -223,6 +252,18 @@ class ValidatorApp:
             user = await self.DB["users"].find_one({"api_key": user_api_key})
             if not user:
                 raise HTTPException(status_code=403, detail="Unauthorized")
+
+            # Check rate limit
+            if not await self.check_rate_limit(user_api_key):
+                raise HTTPException(
+                    status_code=429, 
+                    detail="Rate limit exceeded. Maximum 5 requests per minute."
+                )
+
+            # Enforce restrictions for non-root users
+            if user_api_key != self.ROOT_USER_API_KEY:
+                payload.miner_uid = -1
+                payload.top_incentive = max(payload.top_incentive, 0.05)
 
             try:
                 validators = self.in_memory_validators.copy()
