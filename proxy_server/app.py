@@ -34,8 +34,8 @@ class ValidatorApp:
         self.ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
         self.MIN_STAKE = int(os.getenv("MIN_STAKE", 1000))
         self.ROOT_USER_API_KEY = os.getenv("ROOT_USER_API_KEY")
-        self.RATE_LIMIT = 5  # requests per minute
-        self.RATE_WINDOW = 60  # seconds
+        self.RATE_LIMIT = 1  # requests per minute
+        self.RATE_WINDOW = 15  # seconds
         
         # Get whitelist validators from env
         whitelist_str = os.getenv("WHITELIST_VALIDATORS", "")
@@ -263,7 +263,7 @@ class ValidatorApp:
             # Enforce restrictions for non-root users
             if user_api_key != self.ROOT_USER_API_KEY:
                 payload.miner_uid = -1
-                payload.top_incentive = max(payload.top_incentive, 0.05)
+                payload.top_incentive = max(payload.top_incentive, 0.2)
 
             try:
                 validators = self.in_memory_validators.copy()
