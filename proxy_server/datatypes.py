@@ -21,7 +21,7 @@ class OrganicPayload(BaseModel):
 
 
 class MessagesPayload(BaseModel):
-    messages: list[str]
+    messages: list[dict]
     top_incentive: float = 0.4
     miner_uid: int = -1
 
