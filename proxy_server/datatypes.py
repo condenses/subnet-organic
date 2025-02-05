@@ -12,12 +12,18 @@ class OrganicPayload(BaseModel):
     miner_uid: int = -1
     top_incentive: float = 0.9
 
-    @field_validator('context')
+    @field_validator("context")
     @classmethod
     def validate_context_length(cls, v):
         if len(v) >= 25000:
-            raise ValueError('context must be less than 25000 characters')
+            raise ValueError("context must be less than 25000 characters")
         return v
+
+
+class MessagesPayload(BaseModel):
+    messages: list[str]
+    top_incentive: float = 0.4
+    miner_uid: int = -1
 
 
 class Validator(BaseModel):

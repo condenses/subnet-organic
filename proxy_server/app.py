@@ -1,6 +1,11 @@
 from fastapi import FastAPI, Request, Depends, Header
 from fastapi.exceptions import HTTPException
-from datatypes import RegisterPayload, OrganicPayload, ValidatorRegisterData
+from datatypes import (
+    RegisterPayload,
+    OrganicPayload,
+    ValidatorRegisterData,
+    MessagesPayload,
+)
 from dependencies import check_authentication
 import motor.motor_asyncio
 import os
@@ -36,10 +41,12 @@ class ValidatorApp:
         self.ROOT_USER_API_KEY = os.getenv("ROOT_USER_API_KEY")
         self.RATE_LIMIT = 1  # requests per minute
         self.RATE_WINDOW = 15  # seconds
-        
+
         # Get whitelist validators from env
         whitelist_str = os.getenv("WHITELIST_VALIDATORS", "")
-        self.WHITELIST_VALIDATORS = [v.strip() for v in whitelist_str.split(",")] if whitelist_str else []
+        self.WHITELIST_VALIDATORS = (
+            [v.strip() for v in whitelist_str.split(",")] if whitelist_str else []
+        )
         if self.WHITELIST_VALIDATORS:
             logger.info("whitelist_validators", validators=self.WHITELIST_VALIDATORS)
 
@@ -109,7 +116,7 @@ class ValidatorApp:
         # Get validators list outside the lock since DB operation doesn't affect shared state
         logger.info("updating_validators")
         validators = await self.DB["validators"].find().to_list(None)
-        
+
         async def check_validator(validator):
             endpoint = validator.get("endpoint")
             if not endpoint:
@@ -130,35 +137,28 @@ class ValidatorApp:
         # Only lock when updating the shared state
         async with self.lock:
             self.in_memory_validators = updated_validators
-            
-        logger.info(
-            "validators_updated",
-            count=len(updated_validators)
-        )
+
+        logger.info("validators_updated", count=len(updated_validators))
 
     async def check_rate_limit(self, api_key: str) -> bool:
         """Check if the request should be rate limited using MongoDB"""
         if api_key == self.ROOT_USER_API_KEY:
             return True
-            
+
         now = datetime.utcnow()
         window_start = now - timedelta(seconds=self.RATE_WINDOW)
-        
+
         # Count recent requests
-        count = await self.DB["request_logs"].count_documents({
-            "api_key": api_key,
-            "timestamp": {"$gte": window_start}
-        })
-        
+        count = await self.DB["request_logs"].count_documents(
+            {"api_key": api_key, "timestamp": {"$gte": window_start}}
+        )
+
         if count >= self.RATE_LIMIT:
             return False
-            
+
         # Log this request
-        await self.DB["request_logs"].insert_one({
-            "api_key": api_key,
-            "timestamp": now
-        })
-        
+        await self.DB["request_logs"].insert_one({"api_key": api_key, "timestamp": now})
+
         return True
 
     def register_endpoints(self):
@@ -189,7 +189,9 @@ class ValidatorApp:
                 return {"status": "success", "message": "User API key registered"}
             except Exception as e:
                 if "duplicate key error" in str(e):
-                    raise HTTPException(status_code=400, detail="API key already exists")
+                    raise HTTPException(
+                        status_code=400, detail="API key already exists"
+                    )
                 logger.error("api_key_registration_failed", error=str(e))
                 raise HTTPException(status_code=500, detail="Database Error")
 
@@ -205,12 +207,19 @@ class ValidatorApp:
             try:
                 collection = self.DB["validators"]
                 ss58_address, ip_address, message = client_data
-                
+
                 # Check if validator is in whitelist if whitelist is enabled
-                if self.WHITELIST_VALIDATORS and ss58_address not in self.WHITELIST_VALIDATORS:
-                    logger.warning("validator_not_in_whitelist", ss58_address=ss58_address)
-                    raise HTTPException(status_code=403, detail="Validator not in whitelist")
-                    
+                if (
+                    self.WHITELIST_VALIDATORS
+                    and ss58_address not in self.WHITELIST_VALIDATORS
+                ):
+                    logger.warning(
+                        "validator_not_in_whitelist", ss58_address=ss58_address
+                    )
+                    raise HTTPException(
+                        status_code=403, detail="Validator not in whitelist"
+                    )
+
                 endpoint = f"http://{ip_address}:{payload.port}"
                 data = ValidatorRegisterData(
                     ss58_address=ss58_address,
@@ -225,16 +234,14 @@ class ValidatorApp:
                 logger.info(
                     "deleted_duplicate_endpoints",
                     endpoint=endpoint,
-                    count=result.deleted_count
+                    count=result.deleted_count,
                 )
 
                 result = await collection.update_one(
                     {"_id": ss58_address}, {"$set": data.model_dump()}, upsert=True
                 )
                 logger.info(
-                    "validator_registered",
-                    ss58_address=ss58_address,
-                    port=payload.port
+                    "validator_registered", ss58_address=ss58_address, port=payload.port
                 )
                 await self.update_validators()
                 self.in_memory_validators[ss58_address] = data.model_dump()
@@ -256,8 +263,8 @@ class ValidatorApp:
             # Check rate limit
             if not await self.check_rate_limit(user_api_key):
                 raise HTTPException(
-                    status_code=429, 
-                    detail="Rate limit exceeded. Maximum 5 requests per minute."
+                    status_code=429,
+                    detail="Rate limit exceeded. Maximum 5 requests per minute.",
                 )
 
             # Enforce restrictions for non-root users
@@ -279,9 +286,12 @@ class ValidatorApp:
                     try:
                         ss58_address = validator.get("ss58_address")
                         # Skip if whitelist is enabled and validator not in whitelist
-                        if self.WHITELIST_VALIDATORS and ss58_address not in self.WHITELIST_VALIDATORS:
+                        if (
+                            self.WHITELIST_VALIDATORS
+                            and ss58_address not in self.WHITELIST_VALIDATORS
+                        ):
                             continue
-                            
+
                         uid = self.metagraph.hotkeys.index(ss58_address)
                         stake = self.metagraph.total_stake[uid]
                         if stake < self.MIN_STAKE:
@@ -290,8 +300,7 @@ class ValidatorApp:
                         ss58_addresses.append(ss58_address)
                     except ValueError:
                         logger.warning(
-                            "validator_not_in_metagraph",
-                            ss58_address=ss58_address
+                            "validator_not_in_metagraph", ss58_address=ss58_address
                         )
 
                 if not stakes:
@@ -318,6 +327,68 @@ class ValidatorApp:
             except httpx.RequestError as e:
                 logger.error("organic_request_forwarding_error", error=str(e))
                 raise HTTPException(status_code=503, detail="Forwarding Error")
+
+        @self.app.post("/api/v1/compress/messages")
+        async def compress_messages(
+            payload: MessagesPayload, user_api_key: str = Header(...)
+        ):
+            """
+            Compress messages using a selected validator.
+            """
+            if not payload.messages:
+                raise HTTPException(status_code=400, detail="No messages provided")
+
+            MAX_RETRIES = 3
+
+            async def compress_single_message(message):
+                for retry in range(MAX_RETRIES):
+                    try:
+                        if not message["content"]:
+                            return message
+                        result = await organic(
+                            OrganicPayload(
+                                context=message["content"],
+                                miner_uid=payload.miner_uid,
+                                top_incentive=payload.top_incentive,
+                                tier="universal",
+                                target_model="mistralai/Mistral-7B-Instruct-v0.2",
+                            ),
+                            user_api_key,
+                        )
+                        compressed_context = result["compressed_context"]
+                        if compressed_context:  # Check if not empty string
+                            message_copy = message.copy()
+                            message_copy["content"] = compressed_context
+                            return message_copy
+                    except Exception as e:
+                        logger.warning(
+                            f"Compression failed (attempt {retry + 1}): {str(e)}"
+                        )
+                        if retry == MAX_RETRIES - 1:
+                            logger.error(
+                                f"Failed to compress message after {MAX_RETRIES} attempts"
+                            )
+                            return None
+                        await asyncio.sleep(1)  # Wait before retry
+                return None
+
+            # Process messages concurrently
+            tasks = [compress_single_message(message) for message in payload.messages]
+            compressed_messages = [
+                msg for msg in await asyncio.gather(*tasks) if msg is not None
+            ]
+
+            print("compressed_messages:", compressed_messages)
+
+            if not compressed_messages:
+                raise HTTPException(
+                    status_code=503, detail="Failed to compress any messages"
+                )
+
+            return {
+                "status": "success",
+                "messages": compressed_messages,
+            }
 
     def shutdown(self):
         """
