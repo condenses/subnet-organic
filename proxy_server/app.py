@@ -343,6 +343,8 @@ class ValidatorApp:
             async def compress_single_message(message):
                 for retry in range(MAX_RETRIES):
                     try:
+                        if message["role"] == "system":
+                            return message
                         if not message["content"]:
                             return message
                         result = await organic(
