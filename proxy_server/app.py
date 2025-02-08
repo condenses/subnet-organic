@@ -168,7 +168,7 @@ class ValidatorApp:
                 try:
                     result = await self.organic(test_payload, self.ROOT_USER_API_KEY)
                     is_success = (
-                        isinstance(result, dict) and result["compressed_context"]
+                        isinstance(result, dict) and result["compressed_context"] != ""
                     )
                 except Exception as e:
                     logger.error("organic_monitoring_failed", error=str(e))
