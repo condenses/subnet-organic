@@ -183,7 +183,7 @@ class ValidatorApp:
             except Exception as e:
                 logger.error("organic_monitoring_error", error=str(e))
 
-            await asyncio.sleep(600)  # Sleep for 10 minutes
+            await asyncio.sleep(60)  # Sleep for 1 minute
 
     async def check_rate_limit(self, api_key: str) -> bool:
         """Check if the request should be rate limited using MongoDB"""
@@ -448,7 +448,14 @@ class ValidatorApp:
                     "successful_checks": 0,
                     "uptime_percentage": 0,
                     "recent_status": [],
+                    "last_failed_timestamp": None,
                 }
+
+            # Find the most recent failed check
+            last_failed = next(
+                (r["timestamp"].isoformat() for r in results if not r["is_success"]),
+                None,
+            )
 
             total_checks = len(results)
             successful_checks = sum(1 for r in results if r["is_success"])
@@ -470,6 +477,7 @@ class ValidatorApp:
                 "successful_checks": successful_checks,
                 "uptime_percentage": round(uptime_percentage, 2),
                 "recent_status": recent_status,
+                "last_failed_timestamp": last_failed,
             }
 
         except Exception as e:
