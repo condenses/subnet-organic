@@ -53,9 +53,14 @@ class CompressTextRequest(BaseModel):
 
 async def get_uid():
     logger.debug(f"Getting UID from {settings.node_managing.base_url}")
-    async with AsyncClient(base_url=settings.node_managing.base_url, timeout=12.0) as client:
+    async with AsyncClient(
+        base_url=settings.node_managing.base_url, timeout=12.0
+    ) as client:
         response = await client.post("/api/rate-limits/get-uid")
-        uid = response.json()[0]
+        data = response.json()
+        logger.debug(f"Got data: {data}")
+        response.raise_for_status()
+        uid = data[0]
         logger.debug(f"Got UID: {uid}")
         return uid
 
@@ -71,7 +76,10 @@ async def get_axon_info(uid: int):
             "/api/metagraph/axons",
             json={"uids": [uid]},
         )
-        axon_string = response.json()["axons"][0]
+        response.raise_for_status()
+        data = response.json()
+        logger.debug(f"Got data: {data}")
+        axon_string = data["axons"][0]
         logger.debug(f"Got axon string: {axon_string}")
         axon = bt.Axon.from_string(axon_string)
         logger.debug(f"Parsed axon: {axon}")
