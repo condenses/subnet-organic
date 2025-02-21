@@ -53,7 +53,7 @@ class CompressTextRequest(BaseModel):
 
 async def get_uid():
     logger.debug(f"Getting UID from {settings.node_managing.base_url}")
-    with AsyncClient(base_url=settings.node_managing.base_url, timeout=12.0) as client:
+    async with AsyncClient(base_url=settings.node_managing.base_url, timeout=12.0) as client:
         response = await client.post("/api/rate-limits/get-uid")
         uid = response.json()[0]
         logger.debug(f"Got UID: {uid}")
@@ -64,7 +64,7 @@ async def get_axon_info(uid: int):
     logger.debug(
         f"Getting axon info for UID {uid} from {settings.restful_bittensor.base_url}"
     )
-    with AsyncClient(
+    async with AsyncClient(
         base_url=settings.restful_bittensor.base_url, timeout=12.0
     ) as client:
         response = await client.post(
