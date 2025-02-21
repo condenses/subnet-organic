@@ -51,12 +51,15 @@ class CompressTextRequest(BaseModel):
     top_node_performance: float = 0.1
 
 
-async def get_uid():
+async def get_uid(top_fraction: float = 0.1):
     logger.debug(f"Getting UID from {settings.node_managing.base_url}")
     async with AsyncClient(
         base_url=settings.node_managing.base_url, timeout=12.0
     ) as client:
-        response = await client.post("/api/rate-limits/get-uid")
+        response = await client.post(
+            "/api/rate-limits/consume",
+            json={"top_fraction": top_fraction},
+        )
         data = response.json()
         logger.debug(f"Got data: {data}")
         response.raise_for_status()
@@ -90,7 +93,7 @@ async def get_axon_info(uid: int):
 async def compress_text(request: CompressTextRequest):
     try:
         logger.info("Starting text compression request")
-        uid = await get_uid()
+        uid = await get_uid(request.top_node_performance)
         logger.info(f"Using UID: {uid}")
 
         axon = await get_axon_info(uid)
