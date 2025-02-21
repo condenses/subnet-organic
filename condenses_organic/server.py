@@ -102,7 +102,7 @@ async def compress_text(request: CompressTextRequest):
 
         logger.debug("Sending compression request to dendrite")
         response = await DENDRITE.forward(
-            axon=axon,
+            axons=axon,
             synapse=TextCompressProtocol(context=request.text),
             timeout=24.0,
         )
