@@ -84,7 +84,7 @@ async def get_axon_info(uid: int):
         logger.debug(f"Got data: {data}")
         axon_string = data["axons"][0]
         logger.debug(f"Got axon string: {axon_string}")
-        axon = bt.Axon.from_string(axon_string)
+        axon = bt.AxonInfo.from_string(axon_string)
         logger.debug(f"Parsed axon: {axon}")
         return axon
 
