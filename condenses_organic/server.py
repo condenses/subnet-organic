@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from httpx import AsyncClient
 from pydantic_settings import BaseSettings
 import bittensor as bt
@@ -53,7 +53,7 @@ class CompressTextRequest(BaseModel):
 
 async def get_uid():
     logger.debug(f"Getting UID from {settings.node_managing.base_url}")
-    with AsyncClient(base_url=settings.node_managing.base_url) as client:
+    with AsyncClient(base_url=settings.node_managing.base_url, timeout=12.0) as client:
         response = await client.post("/api/rate-limits/get-uid")
         uid = response.json()[0]
         logger.debug(f"Got UID: {uid}")
@@ -61,8 +61,12 @@ async def get_uid():
 
 
 async def get_axon_info(uid: int):
-    logger.debug(f"Getting axon info for UID {uid} from {settings.restful_bittensor.base_url}")
-    with AsyncClient(base_url=settings.restful_bittensor.base_url) as client:
+    logger.debug(
+        f"Getting axon info for UID {uid} from {settings.restful_bittensor.base_url}"
+    )
+    with AsyncClient(
+        base_url=settings.restful_bittensor.base_url, timeout=12.0
+    ) as client:
         response = await client.post(
             "/api/metagraph/axons",
             json={"uids": [uid]},
@@ -76,21 +80,27 @@ async def get_axon_info(uid: int):
 
 @app.post("/api/compress/text")
 async def compress_text(request: CompressTextRequest):
-    logger.info("Starting text compression request")
-    uid = await get_uid()
-    logger.info(f"Using UID: {uid}")
-    
-    axon = await get_axon_info(uid)
-    logger.info(f"Text: {request.text[:100]}...")
-    logger.info(f"Axon: {axon}")
+    try:
+        logger.info("Starting text compression request")
+        uid = await get_uid()
+        logger.info(f"Using UID: {uid}")
 
-    logger.debug("Sending compression request to dendrite")
-    response = await DENDRITE.forward(
-        axon=axon,
-        synapse=TextCompressProtocol(context=request.text),
-        timeout=24.0,
-    )
-    logger.info(f"Got compressed response of length: {len(response.compressed_context)}")
-    return {
-        "compressed_text": response.compressed_context,
-    }
+        axon = await get_axon_info(uid)
+        logger.info(f"Text: {request.text[:100]}...")
+        logger.info(f"Axon: {axon}")
+
+        logger.debug("Sending compression request to dendrite")
+        response = await DENDRITE.forward(
+            axon=axon,
+            synapse=TextCompressProtocol(context=request.text),
+            timeout=24.0,
+        )
+        logger.info(
+            f"Got compressed response of length: {len(response.compressed_context)}"
+        )
+        return {
+            "compressed_text": response.compressed_context,
+        }
+    except Exception as e:
+        logger.error(f"Error during text compression: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
