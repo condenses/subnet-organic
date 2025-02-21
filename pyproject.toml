@@ -1,0 +1,21 @@
+[tool.hatch.build.targets.wheel]
+packages = ["condenses_organic"]
+
+[project]
+name = "subnet-organic"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "bittensor==9.0.0",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "pydantic-settings>=2.8.0",
+]
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
