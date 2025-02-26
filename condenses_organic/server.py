@@ -4,6 +4,8 @@ from pydantic_settings import BaseSettings
 import bittensor as bt
 from loguru import logger
 from pydantic import BaseModel
+from .taostats_api import TaostatsAPI
+import asyncio
 
 
 class TextCompressProtocol(bt.Synapse):
@@ -15,8 +17,10 @@ class NodeManagingConfig(BaseModel):
     base_url: str = "http://localhost:9101"
 
 
-class RestfulBittensorConfig(BaseModel):
-    base_url: str = "http://localhost:9103"
+class TaostatsConfig(BaseModel):
+    subnet_id: int = 47
+    sync_interval: int = 300
+    api_key: str = None
 
 
 class Settings(BaseSettings):
@@ -24,10 +28,11 @@ class Settings(BaseSettings):
     wallet_hotkey: str = "default"
     wallet_path: str = "~/.bittensor/wallets"
     node_managing: NodeManagingConfig = NodeManagingConfig()
-    restful_bittensor: RestfulBittensorConfig = RestfulBittensorConfig()
+    taostats: TaostatsConfig = TaostatsConfig()
 
     class Config:
         env_file = ".env"
+        env_nested_delimiter = "__"
 
 
 settings = Settings()
@@ -43,7 +48,19 @@ DENDRITE = bt.Dendrite(
     wallet=WALLET,
 )
 
+TAOSTATS_API = TaostatsAPI(
+    subnet_id=settings.taostats.subnet_id,
+    sync_interval=settings.taostats.sync_interval,
+    api_key=settings.taostats.api_key,
+)
+
 app = FastAPI()
+
+
+@app.on_event("startup")
+async def startup_event():
+    # Start the periodic sync task as a background task
+    asyncio.create_task(TAOSTATS_API.periodically_sync_nodes())
 
 
 class CompressTextRequest(BaseModel):
@@ -68,25 +85,12 @@ async def get_uid(top_fraction: float = 0.1):
         return uid
 
 
-async def get_axon_info(uid: int):
-    logger.debug(
-        f"Getting axon info for UID {uid} from {settings.restful_bittensor.base_url}"
-    )
-    async with AsyncClient(
-        base_url=settings.restful_bittensor.base_url, timeout=12.0
-    ) as client:
-        response = await client.post(
-            "/api/metagraph/axons",
-            json={"uids": [uid]},
-        )
-        response.raise_for_status()
-        data = response.json()
-        logger.debug(f"Got data: {data}")
-        axon_string = data["axons"][0]
-        logger.debug(f"Got axon string: {axon_string}")
-        axon = bt.AxonInfo.from_string(axon_string)
-        logger.debug(f"Parsed axon: {axon}")
-        return axon
+async def get_axon_info(uid: int) -> bt.AxonInfo:
+    logger.debug(f"Getting axon info for UID {uid} from TAOSTATS DATA")
+    node = await TAOSTATS_API.get_node_by_uid(uid)
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    return node.get_axon_info()
 
 
 @app.post("/api/compress/text")
