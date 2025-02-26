@@ -90,6 +90,7 @@ class TaostatsAPI:
                 data = response.json()
                 nodes = [Node(**node_data) for node_data in data["data"]]
                 self.nodes = {node.uid: node for node in nodes}
+                logger.info(f"Synced {len(self.nodes)} nodes")
         except Exception as e:
             logger.error(f"Error syncing nodes: {e}")
 
