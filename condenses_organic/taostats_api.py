@@ -84,6 +84,7 @@ class TaostatsAPI:
                 response = await client.get(
                     f"{self.base_url}/metagraph/latest/v1?netuid=47&limit=256",
                     headers=self.headers,
+                    timeout=32,
                 )
                 response.raise_for_status()
                 data = response.json()
