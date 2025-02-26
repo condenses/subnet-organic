@@ -1,8 +1,8 @@
 import httpx
-import os
 import asyncio
 from pydantic import BaseModel
 import bittensor as bt
+from loguru import logger
 
 
 class AxonInfo(BaseModel):
@@ -60,6 +60,7 @@ class Metagraph(BaseModel):
 class TaostatsAPI:
     def __init__(self, subnet_id: int, sync_interval: int = 300, api_key: str = None):
         if api_key is None:
+            logger.error("TAOSTATS_API_KEY is required")
             raise ValueError("TAOSTATS_API_KEY is required")
         self.subnet_id = subnet_id
         self.sync_interval = sync_interval
@@ -76,15 +77,19 @@ class TaostatsAPI:
             await asyncio.sleep(self.sync_interval)
 
     async def sync_nodes(self):
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.base_url}/metagraph/latest/v1?netuid=47&limit=256",
-                headers=self.headers,
-            )
-            response.raise_for_status()
-            data = response.json()
-            nodes = [Node(**node_data) for node_data in data["data"]]
-            self.nodes = {node.uid: node for node in nodes}
+        logger.info("Syncing nodes")
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/metagraph/latest/v1?netuid=47&limit=256",
+                    headers=self.headers,
+                )
+                response.raise_for_status()
+                data = response.json()
+                nodes = [Node(**node_data) for node_data in data["data"]]
+                self.nodes = {node.uid: node for node in nodes}
+        except Exception as e:
+            logger.error(f"Error syncing nodes: {e}")
 
     async def get_node_by_uid(self, uid: int) -> Node | None:
         return self.nodes.get(uid)
