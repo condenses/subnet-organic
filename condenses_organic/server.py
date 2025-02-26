@@ -39,15 +39,22 @@ settings = Settings()
 logger.info(f"Settings: {settings}")
 
 
+logger.info(
+    f"Creating wallet: {settings.wallet_name} with hotkey: {settings.wallet_hotkey} at path: {settings.wallet_path}"
+)
 WALLET = bt.Wallet(
     name=settings.wallet_name,
     hotkey=settings.wallet_hotkey,
     path=settings.wallet_path,
 )
+logger.info(f"Creating dendrite with wallet: {WALLET}")
 DENDRITE = bt.Dendrite(
     wallet=WALLET,
 )
 
+logger.info(
+    f"Creating TAOSTATS API with subnet_id: {settings.taostats.subnet_id} and sync_interval: {settings.taostats.sync_interval}"
+)
 TAOSTATS_API = TaostatsAPI(
     subnet_id=settings.taostats.subnet_id,
     sync_interval=settings.taostats.sync_interval,
@@ -55,6 +62,8 @@ TAOSTATS_API = TaostatsAPI(
 )
 
 app = FastAPI()
+
+logger.info(f"Starting app")
 
 
 @app.on_event("startup")
