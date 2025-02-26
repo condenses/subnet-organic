@@ -62,6 +62,7 @@ class TaostatsAPI:
         if api_key is None:
             logger.error("TAOSTATS_API_KEY is required")
             raise ValueError("TAOSTATS_API_KEY is required")
+        self.api_key = api_key
         self.subnet_id = subnet_id
         self.sync_interval = sync_interval
         self.base_url = "https://api.taostats.io/api"
